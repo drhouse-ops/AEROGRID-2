@@ -126,6 +126,15 @@ export class FirmsService {
 
     } catch (error: any) {
       console.warn("NASA FIRMS API retrieval failed. Returning unavailable context or prototype.", error.message);
+      if (error?.name === "AbortError") {
+        return {
+          available: false,
+          detectionFound: false,
+          error: "FIRMS_TIMEOUT",
+          source: "NASA FIRMS",
+          isPrototype: false
+        };
+      }
       if (isDemoMode) {
         return this.getPrototypeContext(latitude, longitude);
       } else {
@@ -188,10 +197,16 @@ export class FirmsService {
       const result: string[] = [];
       let current = '';
       let inQuotes = false;
-      for (let i = 0; i < text.length; i++) {
-        const char = text[i];
+      const trimmedText = text.trim();
+      for (let i = 0; i < trimmedText.length; i++) {
+        const char = trimmedText[i];
         if (char === '"') {
-          inQuotes = !inQuotes;
+          if (inQuotes && trimmedText[i + 1] === '"') {
+            current += '"';
+            i++; // skip next quote
+          } else {
+            inQuotes = !inQuotes;
+          }
         } else if (char === ',' && !inQuotes) {
           result.push(current.trim());
           current = '';
@@ -200,7 +215,13 @@ export class FirmsService {
         }
       }
       result.push(current.trim());
-      return result.map(val => val.replace(/^"|"$/g, ''));
+      return result.map(val => {
+        let s = val;
+        if (s.startsWith('"') && s.endsWith('"')) {
+          s = s.substring(1, s.length - 1);
+        }
+        return s;
+      });
     };
 
     const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());

@@ -14,7 +14,7 @@ import { WeatherContextService } from "./services/weatherContextService";
 // Load environment variables
 dotenv.config();
 
-const DEMO_MODE = process.env.DEMO_MODE === "true";
+const DEMO_MODE = process.env.DEMO_MODE === "true" || process.env.VITE_DEMO_MODE === "true";
 
 const PORT = 3000;
 
@@ -108,7 +108,7 @@ function resetDatabase() {
 // Start building Express app
 async function startServer() {
   const app = express();
-  app.use(cors({ origin: process.env.FRONTEND_URL || true }));
+  app.use(cors({ origin: process.env.FRONTEND_URL || "*" }));
   app.use((req, res, next) => {
     console.log(`[REQUEST] ${req.method} ${req.url}`);
     next();
@@ -226,9 +226,9 @@ async function startServer() {
       const base64DataStr = image.replace(base64PrefixRegex, "");
       const buffer = Buffer.from(base64DataStr, "base64");
       
-      const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
+      const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
       if (buffer.length > MAX_IMAGE_SIZE_BYTES) {
-        return res.status(400).json({ error: "Image size exceeds the maximum limit of 20MB." });
+        return res.status(400).json({ error: "Image size exceeds the maximum limit of 5MB." });
       }
       
       const strippedBuffer = stripExif(buffer);
@@ -578,7 +578,7 @@ async function startServer() {
     };
     liveReports.push(liveReportWithId);
 
-    const isDemoMode = process.env.VITE_DEMO_MODE === "true";
+    const isDemoMode = DEMO_MODE;
 
     let correlatedReports: any[] = [];
     let liveReportCount = 1;
@@ -911,7 +911,7 @@ async function startServer() {
 
   // POST Dispatch Action
   app.post("/api/v1/incidents/:id/dispatch", (req, res) => {
-    const isDemoMode = process.env.VITE_DEMO_MODE === "true";
+    const isDemoMode = DEMO_MODE;
     if (!isDemoMode) {
       return res.status(503).json({
         success: false,

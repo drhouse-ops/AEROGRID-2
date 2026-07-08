@@ -51,6 +51,18 @@ async function runTests() {
     assert.strictEqual(results[0].frp, "7.2");
   });
 
+  test("FIRMS CSV Parsing handles quoted commas and escaped quotes correctly", () => {
+    const csvContent = `latitude,longitude,instrument,confidence
+"18.52,35",73.8540,"VIIRS ""Super"" Sensor",n`;
+
+    const results = FirmsService.parseCSV(csvContent);
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].latitude, "18.52,35");
+    assert.strictEqual(results[0].longitude, "73.8540");
+    assert.strictEqual(results[0].instrument, 'VIIRS "Super" Sensor');
+    assert.strictEqual(results[0].confidence, "n");
+  });
+
   // 3. Behavior on empty/malformed responses, missing API key, or API timeout
   test("Graceful prototype fallback when FIRMS_MAP_KEY is missing", async () => {
     const originalKey = process.env.FIRMS_MAP_KEY;
@@ -107,7 +119,7 @@ async function runTests() {
 
       const context = await FirmsService.getThermalContext(18.5221, 73.8556);
       assert.strictEqual(context.available, false, "Should handle abort timeout gracefully");
-      assert.strictEqual(context.error, "THERMAL_CONTEXT_UNAVAILABLE", "Should signal unavailable status");
+      assert.strictEqual(context.error, "FIRMS_TIMEOUT", "Should signal timeout status");
     } finally {
       global.fetch = originalFetch;
       process.env.FIRMS_MAP_KEY = originalKey;
