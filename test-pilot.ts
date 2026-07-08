@@ -39,7 +39,7 @@ async function runTests() {
   }
 
   // Set to Live Pilot Mode (Not Demo Mode)
-  process.env.VITE_DEMO_MODE = "false";
+  process.env.DEMO_MODE = "false";
 
   // Ensure mock/fallback keys are NOT used for authentic calls
   const originalFirmsKey = process.env.FIRMS_MAP_KEY;
@@ -77,9 +77,9 @@ async function runTests() {
   // 4. Live dispatch POST returns 503, does not mutate hotspot state, and remains unavailable.
   await test("Live dispatch POST returns 503 and does not mutate hotspot dispatch state", async () => {
     // Save original env
-    const originalDemoMode = process.env.VITE_DEMO_MODE;
-    // We explicitly override VITE_DEMO_MODE to mock isDemoMode client-side check
-    process.env.VITE_DEMO_MODE = "false";
+    const originalDemoMode = process.env.DEMO_MODE;
+    // We explicitly override DEMO_MODE to mock isDemoMode client-side check
+    process.env.DEMO_MODE = "false";
 
     const mockHotspot = {
       id: "test-hotspot-1",
@@ -121,7 +121,7 @@ async function runTests() {
       assert.strictEqual(requestOptions.method, "POST", "Should be a POST request");
     } finally {
       global.fetch = originalFetch;
-      process.env.VITE_DEMO_MODE = originalDemoMode;
+      process.env.DEMO_MODE = originalDemoMode;
     }
 
     // Assert that the hotspot state was not mutated
@@ -129,9 +129,9 @@ async function runTests() {
   });
 
   // 5. Demo dispatch simulation still works if retained
-  await test("Demo dispatch simulation still works if VITE_DEMO_MODE is true", async () => {
-    const originalDemoMode = process.env.VITE_DEMO_MODE;
-    process.env.VITE_DEMO_MODE = "true";
+  await test("Demo dispatch simulation still works if DEMO_MODE is true", async () => {
+    const originalDemoMode = process.env.DEMO_MODE;
+    process.env.DEMO_MODE = "true";
 
     // Seed local hotspots
     const testHotspots = [{
@@ -158,12 +158,12 @@ async function runTests() {
       }
     } finally {
       localStorage.removeItem("aerogrid_fallback_hotspots");
-      process.env.VITE_DEMO_MODE = originalDemoMode;
+      process.env.DEMO_MODE = originalDemoMode;
     }
   });
 
   // Restore original environment values
-  process.env.VITE_DEMO_MODE = "true";
+  process.env.DEMO_MODE = "true";
   process.env.FIRMS_MAP_KEY = originalFirmsKey;
   process.env.OPENWEATHER_API_KEY = originalWeatherKey;
   process.env.DATA_GOV_IN_API_KEY = originalGroundKey;

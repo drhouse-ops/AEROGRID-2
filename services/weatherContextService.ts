@@ -13,7 +13,7 @@ export class WeatherContextService {
    * Uses GOOGLE_WEATHER_API_KEY from environment variables.
    */
   static async getContext(latitude: number, longitude: number): Promise<WeatherContext> {
-    const isDemoMode = process.env.VITE_DEMO_MODE === "true";
+    const isDemoMode = process.env.DEMO_MODE === "true";
     const apiKey = process.env.GOOGLE_WEATHER_API_KEY;
 
     if (!apiKey) {

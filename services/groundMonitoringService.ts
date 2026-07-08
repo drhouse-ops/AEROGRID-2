@@ -45,14 +45,26 @@ interface NormalizedObservation {
 
 export class GroundMonitoringService {
   // In-memory rolling cache of previous observations for baseline calculation
-  public static history: HistoricalRecord[] = [];
+  public static historyMap: Map<string, HistoricalRecord> = new Map();
+
+  public static get history(): HistoricalRecord[] {
+    return Array.from(this.historyMap.values());
+  }
+
+  public static set history(val: HistoricalRecord[]) {
+    this.historyMap.clear();
+    for (const record of val) {
+      const key = `${record.stationName}|${record.pollutant}|${record.timestamp}`;
+      this.historyMap.set(key, record);
+    }
+  }
 
   /**
    * Retrieves ground monitoring environmental context for a given location.
    * Connects to the official data.gov.in real-time ambient air quality dataset.
    */
   static async getContext(latitude: number, longitude: number, eventType?: string): Promise<GroundMonitoring> {
-    const isDemoMode = process.env.VITE_DEMO_MODE === "true";
+    const isDemoMode = process.env.DEMO_MODE === "true";
     const key = process.env.DATA_GOV_IN_API_KEY;
 
     if (!key) {
@@ -199,13 +211,9 @@ export class GroundMonitoringService {
 
       // Populate history cache for rolling baseline
       for (const obs of normalizedObs) {
-        const alreadyInHistory = this.history.some(h => 
-          h.stationName === obs.stationName &&
-          h.pollutant === obs.pollutant &&
-          h.timestamp === obs.timestamp
-        );
-        if (!alreadyInHistory) {
-          this.history.push({
+        const key = `${obs.stationName}|${obs.pollutant}|${obs.timestamp}`;
+        if (!this.historyMap.has(key)) {
+          this.historyMap.set(key, {
             stationName: obs.stationName,
             pollutant: obs.pollutant,
             value: obs.currentValue,
@@ -215,8 +223,12 @@ export class GroundMonitoringService {
       }
 
       // Cap cache size to avoid memory leaks (last 1000 observations)
-      if (this.history.length > 1000) {
-        this.history = this.history.slice(this.history.length - 1000);
+      if (this.historyMap.size > 1000) {
+        const keys = Array.from(this.historyMap.keys());
+        const keysToDelete = keys.slice(0, keys.length - 1000);
+        for (const k of keysToDelete) {
+          this.historyMap.delete(k);
+        }
       }
 
       // Pollutant Selection by Event Type

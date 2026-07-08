@@ -9,7 +9,7 @@ export class FirmsService {
    * keep the pilot demo fully functional and reliable.
    */
   static async getThermalContext(latitude: number, longitude: number): Promise<ThermalContext> {
-    const isDemoMode = process.env.VITE_DEMO_MODE === "true";
+    const isDemoMode = process.env.DEMO_MODE === "true";
     const key = process.env.FIRMS_MAP_KEY;
 
     if (!key) {
@@ -181,20 +181,39 @@ export class FirmsService {
   }
 
   public static parseCSV(csvText: string): any[] {
-    const lines = csvText.trim().split("\n");
+    const lines = csvText.trim().split(/\r?\n/);
     if (lines.length <= 1) return [];
 
-    const headers = lines[0].toLowerCase().split(",");
+    const parseCSVLine = (text: string): string[] => {
+      const result: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      return result.map(val => val.replace(/^"|"$/g, ''));
+    };
+
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
     const results: any[] = [];
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
-      const values = line.split(",");
+      const values = parseCSVLine(line);
       const obj: any = {};
       headers.forEach((header, index) => {
         const cleanHeader = header.trim();
-        obj[cleanHeader] = values[index] ? values[index].trim() : "";
+        obj[cleanHeader] = values[index] !== undefined ? values[index] : "";
       });
       results.push(obj);
     }

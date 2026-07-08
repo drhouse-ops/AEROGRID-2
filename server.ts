@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import cors from "cors";
 
 import { GroundMonitoringService } from "./services/groundMonitoringService";
 import { SatelliteContextService } from "./services/satelliteContextService";
@@ -12,6 +13,8 @@ import { WeatherContextService } from "./services/weatherContextService";
 
 // Load environment variables
 dotenv.config();
+
+const DEMO_MODE = process.env.DEMO_MODE === "true";
 
 const PORT = 3000;
 
@@ -61,6 +64,40 @@ const SEEDED_REPORT = {
   },
 };
 
+// Strip EXIF metadata from JPEG buffers by skipping APP1 (0xFFE1) segments
+function stripExif(buffer: Buffer): Buffer {
+  if (buffer.length > 4 && buffer[0] === 0xFF && buffer[1] === 0xD8) {
+    let i = 2;
+    const result: number[] = [0xFF, 0xD8];
+    while (i < buffer.length) {
+      if (buffer[i] === 0xFF) {
+        if (i + 1 >= buffer.length) break;
+        const marker = buffer[i + 1];
+        if (marker === 0xD9) { // EOI (End of Image)
+          result.push(0xFF, 0xD9);
+          break;
+        }
+        if (i + 3 >= buffer.length) break;
+        const length = (buffer[i + 2] << 8) + buffer[i + 3];
+        if (marker === 0xE1) {
+          // APP1 segment: skip it entirely
+          i += 2 + length;
+        } else {
+          // Keep other segments
+          const segment = buffer.slice(i, i + 2 + length);
+          result.push(...segment);
+          i += 2 + length;
+        }
+      } else {
+        result.push(buffer[i]);
+        i++;
+      }
+    }
+    return Buffer.from(result);
+  }
+  return buffer;
+}
+
 // Reset databases helper
 function resetDatabase() {
   liveReports = [];
@@ -71,6 +108,7 @@ function resetDatabase() {
 // Start building Express app
 async function startServer() {
   const app = express();
+  app.use(cors({ origin: process.env.FRONTEND_URL || true }));
   app.use((req, res, next) => {
     console.log(`[REQUEST] ${req.method} ${req.url}`);
     next();
@@ -100,7 +138,7 @@ async function startServer() {
 
   // POST Reset Demo
   app.post("/api/v1/demo/reset", (req, res) => {
-    const isDemoMode = process.env.VITE_DEMO_MODE === "true";
+    const isDemoMode = DEMO_MODE;
     if (!isDemoMode) {
       return res.status(403).json({
         success: false,
@@ -172,6 +210,30 @@ async function startServer() {
 
     if (!text && !image && !selectedCategory) {
       return res.status(400).json({ error: "Missing text, image, or selectedCategory." });
+    }
+
+    let finalBase64 = undefined;
+    let finalMimeType = undefined;
+
+    if (image) {
+      const base64PrefixRegex = /^data:(image\/(jpeg|png|webp|jpg));base64,/;
+      const match = image.match(base64PrefixRegex);
+      if (!match) {
+        return res.status(400).json({ error: "Invalid image format. Only JPEG, PNG, and WEBP are allowed with a valid base64 data URI prefix." });
+      }
+      
+      const mimeType = match[1] === "image/jpg" ? "image/jpeg" : match[1];
+      const base64DataStr = image.replace(base64PrefixRegex, "");
+      const buffer = Buffer.from(base64DataStr, "base64");
+      
+      const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
+      if (buffer.length > MAX_IMAGE_SIZE_BYTES) {
+        return res.status(400).json({ error: "Image size exceeds the maximum limit of 20MB." });
+      }
+      
+      const strippedBuffer = stripExif(buffer);
+      finalBase64 = strippedBuffer.toString("base64");
+      finalMimeType = mimeType;
     }
 
     console.log(`Analyzing citizen report of length: ${text?.length || 0}, language: ${language}, hasImage: ${!!image}, selectedCategory: "${selectedCategory}"`);
@@ -326,7 +388,7 @@ async function startServer() {
       };
     };
 
-    const isDemoOnly = process.env.DEMO_ONLY === "true" || process.env.VITE_DEMO_ONLY === "true";
+    const isDemoOnly = DEMO_MODE;
 
     // If Gemini key is available and DEMO_ONLY is not active, run actual Gemini Multimodal evaluation
     if (ai && !isDemoOnly) {
@@ -387,15 +449,11 @@ async function startServer() {
         contents.push({ text: prompt });
 
         // Add base64 image part if available
-        if (image) {
-          const mimeMatch = image.match(/^data:(image\/\w+);base64,/);
-          const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
-          const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
-
+        if (image && finalBase64 && finalMimeType) {
           contents.push({
             inlineData: {
-              mimeType,
-              data: base64Data,
+              mimeType: finalMimeType,
+              data: finalBase64,
             },
           });
         }
@@ -439,7 +497,7 @@ async function startServer() {
         return res.json(parsed);
       } catch (err: any) {
         console.error("Gemini invocation failed:", err.message);
-        if (process.env.VITE_DEMO_MODE === "true") {
+        if (DEMO_MODE) {
           console.log("Running in demo mode; falling back to offline analysis.");
           return res.json(fallbackAnalysis());
         } else {
@@ -447,7 +505,7 @@ async function startServer() {
         }
       }
     } else {
-      if (process.env.VITE_DEMO_MODE === "true") {
+      if (DEMO_MODE) {
         console.log(`No Gemini API key found or isDemoOnly=${isDemoOnly}. Using deterministic fallback analysis.`);
         return res.json(fallbackAnalysis());
       } else {
@@ -740,6 +798,7 @@ async function startServer() {
     const finalScore = fusionBreakdown.finalScore;
 
     const DEMO_FORECAST = {
+      disclosure: "SIMULATED DEMO SCENARIO",
       points: [
         { time: "NOW", value: 117 },
         { time: "+3H", value: 143 },
@@ -772,11 +831,16 @@ async function startServer() {
     let actualHotspot = null;
 
     if (isPromoted) {
+      const lats = correlatedReports.map((r) => r.latitude);
+      const lngs = correlatedReports.map((r) => r.longitude);
+      const centroidLat = lats.reduce((sum, val) => sum + val, 0) / lats.length;
+      const centroidLng = lngs.reduce((sum, val) => sum + val, 0) / lngs.length;
+
       const hotspotId = `hotspot_pune_01`;
       actualHotspot = {
         id: hotspotId,
-        latitude: 18.5221, // Centroid of reports
-        longitude: 73.8556,
+        latitude: centroidLat,
+        longitude: centroidLng,
         eventType: resolvedEventType || "OPEN_WASTE_BURNING",
         severity: liveReportWithId.analysis?.severity || "HIGH",
         confidence: parseFloat((finalScore * 100).toFixed(0)) / 100,
@@ -793,7 +857,7 @@ async function startServer() {
         },
         context: {
           groundMonitoring, // Reuse already resolved groundMonitoring
-          satelliteContext: SatelliteContextService.getContext(18.5221, 73.8556),
+          satelliteContext: SatelliteContextService.getContext(centroidLat, centroidLng),
           weatherContext,
           ...(thermalContext ? { thermalContext } : {}),
         },
@@ -812,11 +876,11 @@ async function startServer() {
         },
       };
 
-      // Replace or add to hotspots list
-      hotspots = [actualHotspot];
-    } else {
-      // If not promoted, do not place in the hotspot list
-      hotspots = [];
+      // Unshift to hotspots list and cap at 100 entries
+      hotspots.unshift(actualHotspot);
+      if (hotspots.length > 100) {
+        hotspots = hotspots.slice(0, 100);
+      }
     }
 
     res.json({

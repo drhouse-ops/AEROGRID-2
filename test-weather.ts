@@ -363,9 +363,9 @@ async function runTests() {
   // 9. Missing Key Fallback (Demo Mode)
   await testAsync("Weather service uses prototype fallback disclosure when API key is missing (Demo Mode)", async () => {
     const originalKey = process.env.GOOGLE_WEATHER_API_KEY;
-    const originalDemo = process.env.VITE_DEMO_MODE;
+    const originalDemo = process.env.DEMO_MODE;
     delete process.env.GOOGLE_WEATHER_API_KEY;
-    process.env.VITE_DEMO_MODE = "true";
+    process.env.DEMO_MODE = "true";
 
     try {
       const result = await WeatherContextService.getContext(18.5204, 73.8567);
@@ -376,16 +376,16 @@ async function runTests() {
       assert.strictEqual(result.persistenceScore, 0.78);
     } finally {
       process.env.GOOGLE_WEATHER_API_KEY = originalKey;
-      process.env.VITE_DEMO_MODE = originalDemo;
+      process.env.DEMO_MODE = originalDemo;
     }
   });
 
   // 9b. Missing Key Fallback (Live Mode)
   await testAsync("Weather service returns unavailable in Live Mode when API key is missing", async () => {
     const originalKey = process.env.GOOGLE_WEATHER_API_KEY;
-    const originalDemo = process.env.VITE_DEMO_MODE;
+    const originalDemo = process.env.DEMO_MODE;
     delete process.env.GOOGLE_WEATHER_API_KEY;
-    process.env.VITE_DEMO_MODE = "false";
+    process.env.DEMO_MODE = "false";
 
     try {
       const result = await WeatherContextService.getContext(18.5204, 73.8567);
@@ -396,7 +396,7 @@ async function runTests() {
       assert.strictEqual(result.persistenceScore, null);
     } finally {
       process.env.GOOGLE_WEATHER_API_KEY = originalKey;
-      process.env.VITE_DEMO_MODE = originalDemo;
+      process.env.DEMO_MODE = originalDemo;
     }
   });
 
@@ -458,7 +458,7 @@ async function runTests() {
     } finally {
       WeatherContextService.getContext = originalGetContext;
       process.env.GOOGLE_WEATHER_API_KEY = originalKey;
-      process.env.VITE_DEMO_MODE = originalDemo;
+      process.env.DEMO_MODE = originalDemo;
     }
   });
 

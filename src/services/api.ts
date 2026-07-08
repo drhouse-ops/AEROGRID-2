@@ -515,6 +515,7 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
       fusion: fusionBreakdown,
       context,
       forecast: isDemoMode ? {
+        disclosure: "SIMULATED DEMO SCENARIO",
         points: [
           { time: "NOW", value: 117 },
           { time: "+3H", value: 143 },
