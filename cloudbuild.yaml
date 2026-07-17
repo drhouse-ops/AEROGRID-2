@@ -1,0 +1,15 @@
+# Google Cloud Build config for AEROGRID → Cloud Run.
+# Builds the container with the Dockerfile and deploys to Cloud Run.
+# Set the following substitution or Cloud Run env vars at deploy time:
+#   DEMO_MODE, GEMINI_API_KEY, FIRMS_MAP_KEY, GOOGLE_WEATHER_API_KEY,
+#   DATA_GOV_IN_API_KEY, FIREBASE_SERVICE_ACCOUNT (optional),
+#   GOOGLE_CLOUD_STT_KEY (optional)
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["build", "-t", "asia-southeast1-docker.pkg.dev/${PROJECT_ID}/aerogrid/aerogrid:${SHORT_SHA}", "."]
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "asia-southeast1-docker.pkg.dev/${PROJECT_ID}/aerogrid/aerogrid:${SHORT_SHA}"]
+images:
+  - "asia-southeast1-docker.pkg.dev/${PROJECT_ID}/aerogrid/aerogrid:${SHORT_SHA}"
+options:
+  logging: CLOUD_LOGGING_ONLY
