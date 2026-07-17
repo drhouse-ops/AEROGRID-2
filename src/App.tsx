@@ -1,5 +1,20 @@
 import React, { useState, useEffect } from "react";
-import { 
+
+// Safely encode a binary ArrayBuffer to base64 (handles bytes > 255 and avoids
+// call-stack overflow for large buffers). The naive btoa(String.fromCharCode(...))
+// approach crashes on real audio payloads.
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+};
+
+import {
   Globe, 
   Languages, 
   Mic, 
@@ -345,7 +360,7 @@ export default function App() {
         try {
           const blob = new Blob(chunks, { type: mimeType });
           const buffer = await blob.arrayBuffer();
-          const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const audioBase64 = arrayBufferToBase64(buffer);
           const result = await transcribeAudio(audioBase64, language);
           if (result.success && result.transcript) {
             setReportText((prev) => appendTranscript(prev, result.transcript!));
@@ -1454,7 +1469,7 @@ export default function App() {
                   <span className="text-[10px] font-mono text-[#A2B1C4] block uppercase">High-Confidence Signals</span>
                   <div className="flex items-baseline gap-2 mt-1">
                     <span className="text-2xl font-bold text-[#FF5369] font-mono">
-                      {String(hotspotsList.filter(h => h.signalStrength >= 0.8).length).padStart(2, '0')}
+                      {String(hotspotsList.filter(h => h.signalStrength >= 0.75).length).padStart(2, '0')}
                     </span>
                     <span className="text-[9px] bg-red-500/10 text-red-500 px-1 rounded">Critical</span>
                   </div>
