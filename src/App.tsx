@@ -54,7 +54,8 @@ import {
   getHotspotById, 
   dispatchIncidentResponse, 
   resetDemo,
-  isDemoMode
+  isDemoMode,
+  transcribeAudio
 } from "./services/api";
 import { 
   DEMO_LOCATION, 
@@ -312,6 +313,63 @@ export default function App() {
 
   // Start Browser Speech Recognition (Web Speech API)
   const startSpeechRecognition = () => {
+    setMicState("PROCESSING");
+    setMicError(null);
+
+    // Primary path: server-side Cloud Speech-to-Text (en/hi/mr, robust across browsers).
+    // Fallback path: browser Web Speech API when Cloud STT is unavailable.
+    startCloudSpeechRecognition().catch((err) => {
+      console.warn("[voice] Cloud STT unavailable, falling back to Web Speech API:", err?.message || err);
+      startWebSpeechRecognition();
+    });
+  };
+
+  // Server-side Cloud Speech-to-Text: capture mic audio, send to backend.
+  const startCloudSpeechRecognition = async (): Promise<void> => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("MEDIA_DEVICES_UNAVAILABLE");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks: BlobPart[] = [];
+
+    setMicState("LISTENING");
+
+    const finished = new Promise<void>((resolve, reject) => {
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        try {
+          const blob = new Blob(chunks, { type: mimeType });
+          const buffer = await blob.arrayBuffer();
+          const audioBase64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+          const result = await transcribeAudio(audioBase64, language);
+          if (result.success && result.transcript) {
+            setReportText((prev) => appendTranscript(prev, result.transcript!));
+            setMicState("SUCCESS");
+            setTimeout(() => setMicState("IDLE"), 3000);
+            resolve();
+          } else {
+            reject(new Error(result.error || "SPEECH_TO_TEXT_UNAVAILABLE"));
+          }
+        } catch (e) {
+          reject(e);
+        }
+      };
+      recorder.onerror = () => reject(new Error("RECORDER_ERROR"));
+    });
+
+    recorder.start();
+    // Auto-stop after 15s
+    setTimeout(() => { if (recorder.state !== "inactive") recorder.stop(); }, 15000);
+    return finished;
+  };
+
+  // Browser Web Speech API fallback (Chromium-based browsers).
+  const startWebSpeechRecognition = () => {
     const SpeechRecognitionConstructor = (window as Window & {
       SpeechRecognition?: any;
       webkitSpeechRecognition?: any;
@@ -328,18 +386,13 @@ export default function App() {
       return;
     }
 
-    setMicState("PROCESSING");
-    setMicError(null);
-
     try {
       const recognition = new SpeechRecognitionConstructor();
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.lang = mapLanguageToLocale(language);
 
-      recognition.onstart = () => {
-        setMicState("LISTENING");
-      };
+      recognition.onstart = () => setMicState("LISTENING");
 
       recognition.onresult = (event: any) => {
         const results = event.results;
@@ -348,24 +401,18 @@ export default function App() {
           if (transcript) {
             setReportText((prev) => appendTranscript(prev, transcript));
             setMicState("SUCCESS");
-            setTimeout(() => {
-              setMicState("IDLE");
-            }, 3000);
+            setTimeout(() => setMicState("IDLE"), 3000);
           } else {
             setMicState("ERROR");
-            setMicError({
-              title: "NO SPEECH DETECTED",
-              subtitle: "Try speaking again."
-            });
+            setMicError({ title: "NO SPEECH DETECTED", subtitle: "Try speaking again." });
           }
         }
       };
 
       recognition.onerror = (event: any) => {
         console.error("Speech recognition error:", event.error);
-        const errDetail = mapSpeechError(event.error);
         setMicState("ERROR");
-        setMicError(errDetail);
+        setMicError(mapSpeechError(event.error));
       };
 
       recognition.onend = () => {

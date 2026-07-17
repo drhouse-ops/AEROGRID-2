@@ -576,6 +576,28 @@ async function handleResponse(res: Response) {
   return res.json();
 }
 
+/**
+ * Server-side multilingual transcription via Cloud Speech-to-Text.
+ * Returns { success, transcript }. On any failure the caller should fall back to the
+ * browser's Web Speech API. `audioBase64` is WEBM_OPUS recorded from the mic.
+ */
+export async function transcribeAudio(audioBase64: string, language: "en" | "hi" | "mr"): Promise<{ success: boolean; transcript?: string; error?: string }> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/v1/speech-to-text`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioBase64, language }),
+    });
+    const data = await res.json();
+    if (data.success && data.transcript) {
+      return { success: true, transcript: data.transcript };
+    }
+    return { success: false, error: data.error || "SPEECH_TO_TEXT_UNAVAILABLE" };
+  } catch (err: any) {
+    return { success: false, error: err?.message || "SPEECH_TO_TEXT_UNAVAILABLE" };
+  }
+}
+
 // ==========================================================
 // CORE EXPORTS WITH SMART SELF-HEALING FALLBACKS
 // ==========================================================

@@ -9,6 +9,8 @@ import { registerHealthRoutes } from "./src/server/routes/healthRoutes";
 import { registerAnalyzeRoutes } from "./src/server/routes/analyzeRoutes";
 import { registerFusionRoutes } from "./src/server/routes/fusionRoutes";
 import { registerHotspotRoutes } from "./src/server/routes/hotspotRoutes";
+import { registerSpeechRoutes } from "./src/server/routes/speechRoutes";
+import { hydrateFromPersistence } from "./src/server/serverState";
 
 // Load environment variables
 dotenv.config();
@@ -43,6 +45,10 @@ async function startServer() {
   registerAnalyzeRoutes(app, { ai, DEMO_MODE });
   registerFusionRoutes(app, { DEMO_MODE });
   registerHotspotRoutes(app, { DEMO_MODE });
+  registerSpeechRoutes(app, { DEMO_MODE });
+
+  // Hydrate persisted state (no-op when Firestore is not configured)
+  await hydrateFromPersistence();
 
   // ==========================================
   // VITE OR STATIC FILE SERVING

@@ -66,3 +66,34 @@ export function resetDatabase(): void {
   serverState.hotspots = [];
   console.log("Database state reset successfully.");
 }
+
+/**
+ * Persist a newly received citizen report (no-op when Firestore is disabled).
+ */
+export async function persistReport(report: any): Promise<void> {
+  const { saveReport } = await import("./persistence");
+  await saveReport(report);
+}
+
+/**
+ * Persist a promoted signal/hotspot (no-op when Firestore is disabled).
+ */
+export async function persistHotspot(hotspot: any): Promise<void> {
+  const { saveHotspot } = await import("./persistence");
+  await saveHotspot(hotspot);
+}
+
+/**
+ * Load any persisted state from Firestore into the in-memory store on cold start.
+ * Safe to call even when persistence is disabled. Call once before serving traffic.
+ */
+export async function hydrateFromPersistence(): Promise<void> {
+  const { loadPersistedState } = await import("./persistence");
+  try {
+    const { reports, hotspots } = await loadPersistedState();
+    if (reports.length > 0) serverState.liveReports = reports;
+    if (hotspots.length > 0) serverState.hotspots = hotspots;
+  } catch (e) {
+    console.warn("[serverState] hydrateFromPersistence failed:", (e as Error).message);
+  }
+}
