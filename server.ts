@@ -10,6 +10,7 @@ import { registerAnalyzeRoutes } from "./src/server/routes/analyzeRoutes";
 import { registerFusionRoutes } from "./src/server/routes/fusionRoutes";
 import { registerHotspotRoutes } from "./src/server/routes/hotspotRoutes";
 import { registerSpeechRoutes } from "./src/server/routes/speechRoutes";
+import { registerStreamRoutes } from "./src/server/routes/streamRoutes";
 import { hydrateFromPersistence } from "./src/server/serverState";
 
 // Load environment variables
@@ -46,6 +47,7 @@ async function startServer() {
   registerFusionRoutes(app, { DEMO_MODE });
   registerHotspotRoutes(app, { DEMO_MODE });
   registerSpeechRoutes(app, { DEMO_MODE });
+  registerStreamRoutes(app);
 
   // Hydrate persisted state (no-op when Firestore is not configured)
   await hydrateFromPersistence();

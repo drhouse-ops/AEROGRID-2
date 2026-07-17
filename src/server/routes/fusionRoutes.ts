@@ -5,7 +5,7 @@ import { SignalFusionService } from "../../../services/signalFusionService";
 import { FirmsService } from "../../../services/firmsService";
 import { WeatherContextService } from "../../../services/weatherContextService";
 import { FUSION_CONFIG, resolveBandedScore, resolveCitizenCorrelation } from "../../config/fusionConfig";
-import { serverState, SEEDED_REPORT, persistReport, persistHotspot } from "../serverState";
+import { serverState, SEEDED_REPORT, persistReport, persistHotspot, emitSignalStreamEvent } from "../serverState";
 
 /**
  * Signal-fusion evaluation route. Deterministic evidence-convergence engine.
@@ -57,6 +57,7 @@ export function registerFusionRoutes(app: Express, deps: { DEMO_MODE: boolean })
     const liveReportWithId = { ...report, id: liveReportId, timestamp: new Date().toISOString() };
     serverState.liveReports.push(liveReportWithId);
     void persistReport(liveReportWithId);
+    emitSignalStreamEvent({ type: "report_received", report: liveReportWithId, at: new Date().toISOString() });
 
     const isDemoMode = DEMO_MODE;
 
@@ -282,6 +283,7 @@ export function registerFusionRoutes(app: Express, deps: { DEMO_MODE: boolean })
         serverState.hotspots = serverState.hotspots.slice(0, 100);
       }
       void persistHotspot(actualHotspot);
+      emitSignalStreamEvent({ type: "hotspot_promoted", hotspot: actualHotspot, at: new Date().toISOString() });
     }
 
     res.json({

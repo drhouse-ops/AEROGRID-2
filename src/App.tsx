@@ -50,6 +50,7 @@ import EnvironmentalContext from "./components/EnvironmentalContext";
 import ForecastChart from "./components/ForecastChart";
 import EvidenceTimeline from "./components/EvidenceTimeline";
 import ActionRecommendation from "./components/ActionRecommendation";
+import FusionBreakdown from "./components/FusionBreakdown";
 import PuneMap from "./components/PuneMap";
 import SignalCorrelation from "./components/SignalCorrelation";
 
@@ -70,7 +71,11 @@ import {
   dispatchIncidentResponse, 
   resetDemo,
   isDemoMode,
-  transcribeAudio
+  transcribeAudio,
+  subscribeSignalStream,
+  acknowledgeIncident,
+  resolveIncident,
+  dismissIncident
 } from "./services/api";
 import { 
   DEMO_LOCATION, 
@@ -130,10 +135,35 @@ export default function App() {
   const [envContext, setEnvContext] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "live-signals" | "hotspots" | "response" | "analytics">("overview");
 
+  // Live Signal Stream (SSE) feed for the Municipal Desk
+  const [streamEvents, setStreamEvents] = useState<any[]>([]);
+  const [streamConnected, setStreamConnected] = useState(false);
+
   // Load hotspots list initially & when role switching
   useEffect(() => {
     fetchHotspots();
     fetchStaticContext();
+  }, [role]);
+
+  // Subscribe to the live signal stream (real-time report/hotspot events)
+  useEffect(() => {
+    setStreamEvents([]);
+    setStreamConnected(false);
+    const unsubscribe = subscribeSignalStream((event) => {
+      if (event?.type === "connected" || event?.type === "hello" || event?.type === "ping") {
+        setStreamConnected(true);
+        return;
+      }
+      setStreamConnected(true);
+      setStreamEvents((prev) => [event, ...prev].slice(0, 40));
+      // When a hotspot is promoted, refresh the municipal list so it appears immediately
+      if (event?.type === "hotspot_promoted" || event?.type === "hotspot_dispatched" || event?.type === "hotspot_resolved" || event?.type === "report_received") {
+        if (role === "municipal") {
+          fetchHotspots();
+        }
+      }
+    });
+    return unsubscribe;
   }, [role]);
 
   const fetchHotspots = async () => {
@@ -631,6 +661,59 @@ export default function App() {
         setHotspotsList((prevList) => 
           prevList.map((h) => h.id === selectedHotspotId ? res.hotspot : h)
         );
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  // Acknowledge incident (starts SLA clock)
+  const handleAcknowledgeIncident = async () => {
+    if (!selectedHotspotId) return;
+    try {
+      setIsDispatching(true);
+      const res = await acknowledgeIncident(selectedHotspotId);
+      if (res.success) {
+        setHotspotsList((prevList) =>
+          prevList.map((h) => h.id === selectedHotspotId ? res.hotspot : h)
+        );
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  // Resolve incident (stops SLA clock)
+  const handleResolveIncident = async () => {
+    if (!selectedHotspotId) return;
+    try {
+      setIsDispatching(true);
+      const res = await resolveIncident(selectedHotspotId);
+      if (res.success) {
+        setHotspotsList((prevList) =>
+          prevList.map((h) => h.id === selectedHotspotId ? res.hotspot : h)
+        );
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  // Dismiss incident as false positive (human-in-loop)
+  const handleDismissIncident = async (reason: string) => {
+    if (!selectedHotspotId) return;
+    try {
+      setIsDispatching(true);
+      const res = await dismissIncident(selectedHotspotId, reason);
+      if (res.success) {
+        setHotspotsList((prevList) => prevList.filter((h) => h.id !== res.hotspotId));
+        setSelectedHotspotId(null);
       }
     } catch (err) {
       console.error(err);
@@ -1416,6 +1499,8 @@ export default function App() {
                       a critical local combustion source.
                     </p>
 
+                    <FusionBreakdown fusion={fusedHotspot.fusion} className="bg-[#101A28]/60" />
+
                     <button
                       onClick={() => {
                         setRole("municipal");
@@ -1496,6 +1581,63 @@ export default function App() {
                     setActiveTab("overview");
                   }}
                 />
+              </div>
+
+              {/* Live Signal Stream (real-time event feed) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-mono font-bold text-[#A2B1C4] tracking-widest uppercase flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-[#00C9FF]" />
+                    LIVE SIGNAL STREAM
+                  </h4>
+                  <span className={`flex items-center gap-1.5 text-[9px] font-mono px-1.5 py-0.5 rounded ${streamConnected ? "bg-[#31D697]/10 text-[#31D697]" : "bg-slate-800 text-slate-500"}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${streamConnected ? "bg-[#31D697] animate-pulse" : "bg-slate-500"}`} />
+                    {streamConnected ? "LIVE" : "OFFLINE"}
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[#101A28] border border-slate-800 max-h-44 overflow-y-auto space-y-1.5">
+                  {streamEvents.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 font-mono italic text-center py-3">
+                      Listening for incoming citizen observations and signal promotions…
+                    </p>
+                  ) : (
+                    streamEvents.map((ev, i) => {
+                      const at = ev?.at ? new Date(ev.at).toLocaleTimeString() : "";
+                      let icon = "•";
+                      let color = "text-[#A2B1C4]";
+                      let label = "";
+                      if (ev?.type === "report_received") {
+                        icon = "📥";
+                        color = "text-[#00C9FF]";
+                        label = `New citizen observation (${ev.report?.language || "?"})`;
+                      } else if (ev?.type === "hotspot_promoted") {
+                        icon = "🚨";
+                        color = "text-[#FF5369]";
+                        label = `Signal promoted · ${(ev.hotspot?.signalStrength * 100).toFixed(0)}% strength`;
+                      } else if (ev?.type === "hotspot_dispatched") {
+                        icon = "🚐";
+                        color = "text-[#FF8B1C]";
+                        label = `Team ${ev.dispatch?.status || "en route"} · ${ev.hotspotId}`;
+                      } else if (ev?.type === "hotspot_resolved") {
+                        icon = "✅";
+                        color = "text-[#31D697]";
+                        label = `Resolved · ${ev.hotspotId}`;
+                      } else if (ev?.type === "hotspot_dismissed") {
+                        icon = "🚫";
+                        color = "text-slate-500";
+                        label = `Dismissed (false positive) · ${ev.hotspotId}`;
+                      }
+                      return (
+                        <div key={`${ev?.type}-${ev?.at}-${i}`} className={`flex items-center gap-2 text-[11px] font-mono ${i === 0 ? "animate-fade-in" : ""}`}>
+                          <span>{icon}</span>
+                          <span className={`${color} truncate flex-1`}>{label}</span>
+                          <span className="text-slate-600 shrink-0">{at}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
 
               {/* Hotspot incident selection feed */}
@@ -1627,13 +1769,19 @@ export default function App() {
                   {/* Dynamic Active Tab render */}
                   {activeTab === "overview" && (
                     <div className="space-y-6 animate-fade-in">
-                      
+                       
                       {/* Recommendations & Simulation dispatch panel */}
                       <ActionRecommendation 
                         hotspot={currentHotspot} 
                         onDispatch={handleDispatchTeam}
+                        onAcknowledge={handleAcknowledgeIncident}
+                        onResolve={handleResolveIncident}
+                        onDismiss={handleDismissIncident}
                         isDispatching={isDispatching}
                       />
+
+                      {/* Signal Explainability Card — transparent weighted fusion breakdown */}
+                      <FusionBreakdown fusion={currentHotspot.fusion} />
 
                       {/* Citizen Reports Category Analysis Panel */}
                       <div className="space-y-3">

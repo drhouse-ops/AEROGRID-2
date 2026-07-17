@@ -61,6 +61,36 @@ export const serverState = {
   hotspots: [] as any[],
 };
 
+// Lightweight event bus for the live signal stream (Server-Sent Events).
+// Consumers (the municipal desk) subscribe to real-time report / hotspot events.
+type SignalStreamEvent =
+  | { type: "report_received"; report: any; at: string }
+  | { type: "hotspot_promoted"; hotspot: any; at: string }
+  | { type: "hotspot_dispatched"; hotspotId: string; dispatch: any; at: string }
+  | { type: "hotspot_resolved"; hotspotId: string; resolution: any; at: string }
+  | { type: "hotspot_dismissed"; hotspotId: string; reason: string; at: string };
+
+type Listener = (event: SignalStreamEvent) => void;
+
+const signalStreamListeners = new Set<Listener>();
+
+export function emitSignalStreamEvent(event: SignalStreamEvent): void {
+  for (const listener of signalStreamListeners) {
+    try {
+      listener(event);
+    } catch (e) {
+      console.warn("[signalStream] listener error:", (e as Error).message);
+    }
+  }
+}
+
+export function subscribeSignalStream(listener: Listener): () => void {
+  signalStreamListeners.add(listener);
+  return () => {
+    signalStreamListeners.delete(listener);
+  };
+}
+
 export function resetDatabase(): void {
   serverState.liveReports = [];
   serverState.hotspots = [];

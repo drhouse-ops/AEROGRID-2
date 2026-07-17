@@ -544,6 +544,7 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
         teamName: "Environmental Response Team 02",
         status: "AVAILABLE" as any,
         etaMinutes: 18,
+        slaTargetMinutes: 45,
       } : {
         available: false,
         disclosure: "MUNICIPAL DISPATCH INTEGRATION NOT CONNECTED"
@@ -719,13 +720,16 @@ export async function dispatchIncidentResponse(id: string, teamName: string): Pr
     if (hotspotIndex === -1) {
       throw new Error(`Hotspot ${id} not found in local simulation.`);
     }
+    const dispatchedAt = new Date().toISOString();
     const updatedHotspot = {
       ...hotspots[hotspotIndex],
       dispatch: {
         teamName: teamName || "Environmental Response Team 02",
         status: "EN_ROUTE" as any,
         etaMinutes: 18,
-        timestamp: new Date().toISOString()
+        timestamp: dispatchedAt,
+        acknowledgedAt: hotspots[hotspotIndex].dispatch?.acknowledgedAt || dispatchedAt,
+        dispatchedAt,
       }
     };
     hotspots[hotspotIndex] = updatedHotspot;
@@ -744,6 +748,134 @@ export async function dispatchIncidentResponse(id: string, teamName: string): Pr
   } catch (err) {
     console.warn(`dispatchIncidentResponse failed for ${id} in live pilot mode.`, err);
     throw err;
+  }
+}
+
+// POST Acknowledge incident (starts SLA clock)
+export async function acknowledgeIncident(id: string): Promise<{
+  success: boolean;
+  hotspot: Hotspot;
+}> {
+  if (isDemoMode) {
+    const hotspots = getLocalHotspots();
+    const hotspotIndex = hotspots.findIndex(h => h.id === id);
+    if (hotspotIndex === -1) {
+      throw new Error(`Hotspot ${id} not found in local simulation.`);
+    }
+    const acknowledgedAt = new Date().toISOString();
+    const prev = hotspots[hotspotIndex].dispatch;
+    const updatedHotspot = {
+      ...hotspots[hotspotIndex],
+      dispatch: {
+        ...(prev || {}),
+        status: (prev && prev.status && prev.status !== "AVAILABLE" ? prev.status : "ACKNOWLEDGED") as any,
+        acknowledgedAt,
+      }
+    };
+    hotspots[hotspotIndex] = updatedHotspot;
+    saveLocalHotspots(hotspots);
+    return { success: true, hotspot: updatedHotspot };
+  }
+  try {
+    const res = await fetch(`${BASE_URL}/api/v1/incidents/${id}/acknowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    return await handleResponse(res);
+  } catch (err) {
+    console.warn(`acknowledgeIncident failed for ${id} in live pilot mode.`, err);
+    throw err;
+  }
+}
+
+// POST Resolve incident (stops SLA clock)
+export async function resolveIncident(id: string, outcome?: string): Promise<{
+  success: boolean;
+  hotspot: Hotspot;
+}> {
+  if (isDemoMode) {
+    const hotspots = getLocalHotspots();
+    const hotspotIndex = hotspots.findIndex(h => h.id === id);
+    if (hotspotIndex === -1) {
+      throw new Error(`Hotspot ${id} not found in local simulation.`);
+    }
+    const resolvedAt = new Date().toISOString();
+    const updatedHotspot = {
+      ...hotspots[hotspotIndex],
+      dispatch: {
+        ...(hotspots[hotspotIndex].dispatch || {}),
+        status: "RESOLVED" as any,
+        resolvedAt,
+        outcome: outcome || "RESOLVED_BY_FIELD_TEAM",
+      }
+    };
+    hotspots[hotspotIndex] = updatedHotspot;
+    saveLocalHotspots(hotspots);
+    return { success: true, hotspot: updatedHotspot };
+  }
+  try {
+    const res = await fetch(`${BASE_URL}/api/v1/incidents/${id}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    });
+    return await handleResponse(res);
+  } catch (err) {
+    console.warn(`resolveIncident failed for ${id} in live pilot mode.`, err);
+    throw err;
+  }
+}
+
+// POST Dismiss incident as false positive (human-in-loop)
+export async function dismissIncident(id: string, reason?: string): Promise<{
+  success: boolean;
+  message: string;
+  hotspotId: string;
+}> {
+  if (isDemoMode) {
+    const hotspots = getLocalHotspots();
+    const remaining = hotspots.filter(h => h.id !== id);
+    saveLocalHotspots(remaining);
+    return { success: true, message: "Signal dismissed as false positive.", hotspotId: id };
+  }
+  try {
+    const res = await fetch(`${BASE_URL}/api/v1/incidents/${id}/dismiss`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    return await handleResponse(res);
+  } catch (err) {
+    console.warn(`dismissIncident failed for ${id} in live pilot mode.`, err);
+    throw err;
+  }
+}
+
+// Subscribe to the live signal stream (Server-Sent Events).
+// Returns an unsubscribe function. Falls back to no-op in pure localStorage demo.
+export function subscribeSignalStream(
+  onEvent: (event: any) => void
+): () => void {
+  if (isDemoMode && typeof window !== "undefined" && !window.EventSource) {
+    return () => {};
+  }
+  try {
+    const es = new EventSource(`${BASE_URL}/api/v1/stream`);
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        onEvent(data);
+      } catch {
+        /* ignore malformed */
+      }
+    };
+    es.onerror = () => {
+      // EventSource auto-reconnects; nothing to do.
+    };
+    return () => es.close();
+  } catch {
+    return () => {};
   }
 }
 
