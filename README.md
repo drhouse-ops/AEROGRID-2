@@ -50,8 +50,8 @@ AEROGRID does not trigger municipal alerts or raise emergency alarms based on a 
   [Anomalies vs Hyperlocal AQI Ground Stations + Wind speed]
          │
          ▼
-  HEURISTIC SIGNAL FUSION
-  [Correlates multiple reports within 500m & 30m window]
+   HEURISTIC SIGNAL FUSION
+   [Correlates multiple reports within 300m & 9min canonical window]
          │
          ▼
   PROTOTYPE 24H FORECAST
@@ -83,8 +83,8 @@ Where:
 * **C**: Citizen report correlation
 * **V**: Gemini visual analysis confidence
 * **S**: Ground sensor anomaly score
-* **G**: Geospatial distance correlation (1.0 if within 500m centroid)
-* **T**: Temporal correlation (1.0 if within 30 minutes)
+* **G**: Geospatial distance correlation (1.0 if within 250m; canonical Pune scenario 300m → 1.0; bands fall to 0.0 beyond 1000m)
+* **T**: Temporal correlation (1.0 if within 15min; canonical Pune scenario 9min → 1.0; bands fall to 0.0 beyond 60min)
 * **M**: Meteorological dispersion constraint (Low wind stagnant factor)
 
 ### 4. 24-Hour Prototype Forecast
@@ -130,7 +130,16 @@ The AEROGRID prototype has been updated with clean, server-side modular service 
    - **Visual Indicators**: Displays custom satellite crosshairs on the municipal vector map with separate tooltips, 6-step signal-correlation scanners, and dedicated `REAL SATELLITE CONTEXT` or `PROTOTYPE SATELLITE CONTEXT` cards to ensure complete transparency.
    - **Supporting Role Disclosure**: Never claims independent street-level fire verification; satellite anomalies strictly act as secondary atmospheric supporting context.
 
-5. **Google Maps Platform Weather API & Atmospheric Dispersion Dynamics**:
+ 5. **Opt-in Durable Persistence (Firestore)**:
+    - `persistence.ts` persists incidents and correlations to Google Firestore when `FIREBASE_SERVICE_ACCOUNT` is provided.
+    - When the key is absent, the system transparently falls back to in-memory state (demo-safe, no crash) — providers and persistence always report availability explicitly (`available: false`).
+ 6. **Cloud Speech-to-Text & Web Speech Fallback**:
+    - Server-side `/api/v1/speech-to-text` route uses Google Cloud STT (`GOOGLE_CLOUD_STT_KEY`) for audio transcription.
+    - When the key is absent, the client uses the browser-native Web Speech API, keeping voice input fully functional for live demos without cloud credentials.
+ 7. **Progressive Web App (PWA)**:
+    - Ships a `manifest.webmanifest`, app icon, and service worker (`sw.js`) for installable, offline-resilient municipal desk access.
+
+### 🔬 Google Maps Platform Weather API & Atmospheric Dispersion Dynamics
     - **Service Sourced**: Current weather conditions via the Google Maps Platform Weather API `currentConditions:lookup` REST endpoint.
     - **Fields Extracted**: Real-time temperature, wind speed (kph), wind direction (degrees), relative humidity (%), precipitation (mm), weather conditions, and precise observation timestamps.
     - **Prototype Persistence Score Heuristic**: Maps wind speeds, relative humidity, and precipitation quantities using a bounded 0.0 to 1.0 scoring formula (higher score = stagnant air, higher pollution accumulation risk). Meaningful precipitation or high winds diminish local persistence.
@@ -139,7 +148,7 @@ The AEROGRID prototype has been updated with clean, server-side modular service 
 
 ### 🛰️ Remaining Implementation Gaps
 - **Ground Monitoring Integration**: In production, the `GroundMonitoringService` will connect to CPCB's national air quality API using real station identifiers.
-- **Durable Persistence**: All user-authored incident states currently reside in temporary in-memory collections and `localStorage`, suitable for single-user pilot simulations. Real-world scaling requires migrating to a managed Cloud SQL/Firestore database.
+- **Durable Persistence**: Incident state is held in-memory by default (suitable for single-user pilot simulations). Opt-in Firestore persistence is available via `FIREBASE_SERVICE_ACCOUNT`; production scaling would migrate to a managed Cloud SQL/Firestore database.
 
 ## 🔮 FUTURE PRODUCTION INTEGRATIONS
 * **Sentinel-5P Regional Aerosol Context via Google Earth Engine**:
