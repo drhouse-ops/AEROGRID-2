@@ -23,7 +23,7 @@ const mockBaseHotspot: Hotspot = {
   longitude: 73.8567,
   eventType: EventType.OPEN_WASTE_BURNING,
   severity: Severity.HIGH,
-  confidence: 0.85,
+  signalStrength: 0.85,
   address: "Shivajinagar, Pune",
   timestamp: "2026-07-06T20:00:00Z",
   reportsCount: 1,

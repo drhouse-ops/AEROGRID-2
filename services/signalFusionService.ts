@@ -1,4 +1,5 @@
 import { FusionEvaluation } from "../src/types/api";
+import { FUSION_CONFIG, resolveBandedScore } from "../src/config/fusionConfig";
 
 export interface FusionInputs {
   citizenCorrelation: number;       // C: Correlation with other citizen reports
@@ -14,18 +15,19 @@ export class SignalFusionService {
   /**
    * Evaluates and fuses multi-source environmental signals into a unified threat classification.
    * 
-   * PROTOTYPE FORMULA:
-   * H = 0.20 * C + 0.20 * V + 0.25 * S + 0.15 * G + 0.10 * T + 0.10 * M
+   * PROTOTYPE FORMULA (weights externalised in FUSION_CONFIG):
+   * H = wC*C + wV*V + wS*S + wG*G + wT*T + wM*M
    * 
    * Contextual Modifier:
    * For combustion-related incidents, a nearby NASA FIRMS thermal anomaly 
-   * can act as a supporting contextual modifier, adding up to +0.05 (TCS * 0.05) 
+   * can act as a supporting contextual modifier, adding up to +maxBonus (TCS * maxBonus) 
    * to the final fusion score (capped at 1.00).
    * 
    * If any of the core dimensions are null/unavailable, we exclude their weights and
    * normalize the remaining active dimensions (sum of remaining weights as the denominator).
    */
   static evaluate(inputs: FusionInputs): FusionEvaluation {
+    const w = FUSION_CONFIG.fusionWeights;
     const C = inputs.citizenCorrelation;
     const V = inputs.visualEvidenceConfidence;
     const S = inputs.groundMonitoringAnomaly;
@@ -35,12 +37,12 @@ export class SignalFusionService {
     const TCS = inputs.thermalContextScore !== undefined ? inputs.thermalContextScore : 0;
 
     const dimensions = [
-      { name: "citizenReportCorrelation", value: C, weight: 0.20, label: "Citizen Report Correlation" },
-      { name: "visualEvidenceConfidence", value: V, weight: 0.20, label: "Visual Evidence Confidence" },
-      { name: "groundMonitoringAnomaly", value: S, weight: 0.25, label: "Ground Monitoring Anomaly" },
-      { name: "geospatialCorrelation", value: G, weight: 0.15, label: "Geospatial Correlation" },
-      { name: "temporalCorrelation", value: T, weight: 0.10, label: "Temporal Correlation" },
-      { name: "atmosphericPersistence", value: M, weight: 0.10, label: "Atmospheric Persistence" }
+      { name: "citizenReportCorrelation", value: C, weight: w.citizenReportCorrelation, label: "Citizen Report Correlation" },
+      { name: "visualEvidenceConfidence", value: V, weight: w.visualEvidenceConfidence, label: "Visual Evidence Confidence" },
+      { name: "groundMonitoringAnomaly", value: S, weight: w.groundMonitoringAnomaly, label: "Ground Monitoring Anomaly" },
+      { name: "geospatialCorrelation", value: G, weight: w.geospatialCorrelation, label: "Geospatial Correlation" },
+      { name: "temporalCorrelation", value: T, weight: w.temporalCorrelation, label: "Temporal Correlation" },
+      { name: "atmosphericPersistence", value: M, weight: w.atmosphericPersistence, label: "Atmospheric Persistence" }
     ];
 
     const availableDims = dimensions.filter(d => d.value !== null && d.value !== undefined);
@@ -56,9 +58,9 @@ export class SignalFusionService {
 
     let finalScore = weightTotal > 0 ? (weightedSum / weightTotal) : 0;
 
-    // Apply thermal modifier (up to +0.05) if provided
-    if (inputs.thermalContextScore !== undefined) {
-      finalScore += (TCS * 0.05);
+    // Apply thermal modifier (up to maxBonus) if provided
+    if (inputs.thermalContextScore !== undefined && FUSION_CONFIG.thermalContextModifier.enabled) {
+      finalScore += (TCS * FUSION_CONFIG.thermalContextModifier.maxBonus);
     }
 
     // Cap score at 1.00 and bound it between 0.0 and 1.0
@@ -66,11 +68,11 @@ export class SignalFusionService {
     const roundedScore = parseFloat(finalScore.toFixed(2));
 
     let classification: "OBSERVATION" | "WATCH" | "PROBABLE HOTSPOT" | "HIGH-CONFIDENCE SIGNAL" = "OBSERVATION";
-    if (roundedScore > 0.75) {
+    if (roundedScore > FUSION_CONFIG.classificationThresholds.highConfidenceSignal) {
       classification = "HIGH-CONFIDENCE SIGNAL";
-    } else if (roundedScore > 0.55) {
+    } else if (roundedScore > FUSION_CONFIG.classificationThresholds.probableHotspot) {
       classification = "PROBABLE HOTSPOT";
-    } else if (roundedScore > 0.35) {
+    } else if (roundedScore > FUSION_CONFIG.classificationThresholds.watch) {
       classification = "WATCH";
     }
 

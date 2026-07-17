@@ -321,7 +321,7 @@ export default function PuneMap({ hotspots, selectedHotspotId, onSelectHotspot }
                     fontWeight="bold" 
                     fontFamily="monospace"
                   >
-                    {h.eventType.replace("_", " ")} ({Math.round(h.confidence * 100)}%)
+                    {h.eventType.replace("_", " ")} ({Math.round(h.signalStrength * 100)}%)
                   </text>
                 </g>
               </g>

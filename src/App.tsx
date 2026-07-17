@@ -1407,7 +1407,7 @@ export default function App() {
                   <span className="text-[10px] font-mono text-[#A2B1C4] block uppercase">High-Confidence Signals</span>
                   <div className="flex items-baseline gap-2 mt-1">
                     <span className="text-2xl font-bold text-[#FF5369] font-mono">
-                      {String(hotspotsList.filter(h => h.confidence >= 0.8).length).padStart(2, '0')}
+                      {String(hotspotsList.filter(h => h.signalStrength >= 0.8).length).padStart(2, '0')}
                     </span>
                     <span className="text-[9px] bg-red-500/10 text-red-500 px-1 rounded">Critical</span>
                   </div>
@@ -1480,7 +1480,7 @@ export default function App() {
                           </p>
 
                           <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-slate-500 border-t border-slate-900 pt-2">
-                            <span>FUSION MATCH: {(h.confidence * 100).toFixed(0)}%</span>
+                            <span>SIGNAL STRENGTH: {(h.signalStrength * 100).toFixed(0)}%</span>
                             <span className={isDemoMode ? "text-[#31D697]" : "text-slate-500 text-right max-w-[150px] truncate"}>
                               {isDemoMode 
                                 ? (h.dispatch?.status === "EN_ROUTE" ? "★ TEAM EN ROUTE (ETA 18m)" : "● AVAILABLE FOR ACTION")
@@ -1519,7 +1519,7 @@ export default function App() {
                     <div className="flex gap-4 pt-2">
                       <div className="px-2.5 py-1 bg-[#162334] rounded border border-slate-800 text-[10px] font-mono">
                         <span className="text-slate-500 block">FUSION LEVEL</span>
-                        <span className="text-[#00C9FF] font-bold">{(currentHotspot.confidence * 100).toFixed(0)}% MATCH</span>
+                        <span className="text-[#00C9FF] font-bold">{(currentHotspot.signalStrength * 100).toFixed(0)}% MATCH</span>
                       </div>
                       <div className="px-2.5 py-1 bg-[#162334] rounded border border-slate-800 text-[10px] font-mono">
                         <span className="text-slate-500 block">PRIORITY ACTION</span>

@@ -6,7 +6,7 @@ interface ConfidenceGaugeProps {
   size?: number;
 }
 
-export default function ConfidenceGauge({ confidence, title = "CONFIDENCE", size = 120 }: ConfidenceGaugeProps) {
+export default function ConfidenceGauge({ confidence, title = "AI EVIDENCE CONFIDENCE", size = 120 }: ConfidenceGaugeProps) {
   const percentage = Math.round(confidence * 100);
   const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;

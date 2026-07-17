@@ -177,7 +177,7 @@ export interface Hotspot {
   longitude: number;
   eventType: EventType;
   severity: Severity;
-  confidence: number;
+  signalStrength: number; // 0.0–1.0, derived from fusion finalScore (Evidence Convergence)
   address: string;
   timestamp: string;
   reportsCount: number;

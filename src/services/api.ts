@@ -6,6 +6,7 @@ import {
   EventType,
   Severity
 } from "../types/api";
+import { FUSION_CONFIG } from "../config/fusionConfig";
 
 const BASE_URL = (typeof import.meta !== "undefined" && import.meta.env) ? (import.meta.env.VITE_API_BASE_URL || "") : "";
 
@@ -358,7 +359,7 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
       if (diffMins > 60) return false;
       const rConfidence = r.analysis?.confidence ?? 0;
       const rAiCat = r.analysis?.aiDetectedCategory;
-      const rHasHighConfidence = rConfidence >= 0.75 && rAiCat && rAiCat !== "UNKNOWN";
+      const rHasHighConfidence = rConfidence >= FUSION_CONFIG.aiCategoryConfidenceThreshold && rAiCat && rAiCat !== "UNKNOWN";
       const rResolvedType = rHasHighConfidence ? rAiCat : (r.categoryHint || r.analysis?.eventType || "UNKNOWN");
       return categoryCompatibility(resolvedEventType, rResolvedType);
     });
@@ -446,13 +447,14 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
     ? context.weatherContext.persistenceScore
     : null;
 
+  const w = FUSION_CONFIG.fusionWeights;
   const dimensions = [
-    { name: "citizenReportCorrelation", value: C, weight: 0.20, label: "Citizen Report Correlation" },
-    { name: "visualEvidenceConfidence", value: V, weight: 0.20, label: "Visual Evidence Confidence" },
-    { name: "groundMonitoringAnomaly", value: S, weight: 0.25, label: "Ground Monitoring Anomaly" },
-    { name: "geospatialCorrelation", value: G, weight: 0.15, label: "Geospatial Correlation" },
-    { name: "temporalCorrelation", value: T, weight: 0.10, label: "Temporal Correlation" },
-    { name: "atmosphericPersistence", value: M, weight: 0.10, label: "Atmospheric Persistence" }
+    { name: "citizenReportCorrelation", value: C, weight: w.citizenReportCorrelation, label: "Citizen Report Correlation" },
+    { name: "visualEvidenceConfidence", value: V, weight: w.visualEvidenceConfidence, label: "Visual Evidence Confidence" },
+    { name: "groundMonitoringAnomaly", value: S, weight: w.groundMonitoringAnomaly, label: "Ground Monitoring Anomaly" },
+    { name: "geospatialCorrelation", value: G, weight: w.geospatialCorrelation, label: "Geospatial Correlation" },
+    { name: "temporalCorrelation", value: T, weight: w.temporalCorrelation, label: "Temporal Correlation" },
+    { name: "atmosphericPersistence", value: M, weight: w.atmosphericPersistence, label: "Atmospheric Persistence" }
   ];
 
   const availableDims = dimensions.filter(d => d.value !== null && d.value !== undefined);
@@ -469,11 +471,11 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
   const finalScore = weightTotal > 0 ? parseFloat((weightedSum / weightTotal).toFixed(2)) : 0;
 
   let classification: "OBSERVATION" | "WATCH" | "PROBABLE HOTSPOT" | "HIGH-CONFIDENCE SIGNAL" = "OBSERVATION";
-  if (finalScore > 0.75) {
+  if (finalScore > FUSION_CONFIG.classificationThresholds.highConfidenceSignal) {
     classification = "HIGH-CONFIDENCE SIGNAL";
-  } else if (finalScore > 0.55) {
+  } else if (finalScore > FUSION_CONFIG.classificationThresholds.probableHotspot) {
     classification = "PROBABLE HOTSPOT";
-  } else if (finalScore > 0.35) {
+  } else if (finalScore > FUSION_CONFIG.classificationThresholds.watch) {
     classification = "WATCH";
   }
 
@@ -507,7 +509,7 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
       longitude: 73.8556,
       eventType: liveReportWithId.analysis?.eventType || EventType.OPEN_WASTE_BURNING,
       severity: liveReportWithId.analysis?.severity || Severity.HIGH,
-      confidence: finalScore,
+      signalStrength: finalScore,
       address: "Pune Central Pilot Zone (Centroid near Shivajinagar Market)",
       timestamp: new Date().toISOString(),
       reportsCount: n + 1,
