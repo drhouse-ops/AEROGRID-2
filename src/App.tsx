@@ -1,20 +1,5 @@
 import React, { useState, useEffect } from "react";
-
-// Safely encode a binary ArrayBuffer to base64 (handles bytes > 255 and avoids
-// call-stack overflow for large buffers). The naive btoa(String.fromCharCode(...))
-// approach crashes on real audio payloads.
-const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
-  }
-  return btoa(binary);
-};
-
-import {
+import { 
   Globe, 
   Languages, 
   Mic, 
@@ -50,7 +35,6 @@ import EnvironmentalContext from "./components/EnvironmentalContext";
 import ForecastChart from "./components/ForecastChart";
 import EvidenceTimeline from "./components/EvidenceTimeline";
 import ActionRecommendation from "./components/ActionRecommendation";
-import FusionBreakdown from "./components/FusionBreakdown";
 import PuneMap from "./components/PuneMap";
 import SignalCorrelation from "./components/SignalCorrelation";
 
@@ -70,12 +54,7 @@ import {
   getHotspotById, 
   dispatchIncidentResponse, 
   resetDemo,
-  isDemoMode,
-  transcribeAudio,
-  subscribeSignalStream,
-  acknowledgeIncident,
-  resolveIncident,
-  dismissIncident
+  isDemoMode
 } from "./services/api";
 import { 
   DEMO_LOCATION, 
@@ -135,35 +114,10 @@ export default function App() {
   const [envContext, setEnvContext] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "live-signals" | "hotspots" | "response" | "analytics">("overview");
 
-  // Live Signal Stream (SSE) feed for the Municipal Desk
-  const [streamEvents, setStreamEvents] = useState<any[]>([]);
-  const [streamConnected, setStreamConnected] = useState(false);
-
   // Load hotspots list initially & when role switching
   useEffect(() => {
     fetchHotspots();
     fetchStaticContext();
-  }, [role]);
-
-  // Subscribe to the live signal stream (real-time report/hotspot events)
-  useEffect(() => {
-    setStreamEvents([]);
-    setStreamConnected(false);
-    const unsubscribe = subscribeSignalStream((event) => {
-      if (event?.type === "connected" || event?.type === "hello" || event?.type === "ping") {
-        setStreamConnected(true);
-        return;
-      }
-      setStreamConnected(true);
-      setStreamEvents((prev) => [event, ...prev].slice(0, 40));
-      // When a hotspot is promoted, refresh the municipal list so it appears immediately
-      if (event?.type === "hotspot_promoted" || event?.type === "hotspot_dispatched" || event?.type === "hotspot_resolved" || event?.type === "report_received") {
-        if (role === "municipal") {
-          fetchHotspots();
-        }
-      }
-    });
-    return unsubscribe;
   }, [role]);
 
   const fetchHotspots = async () => {
@@ -358,63 +312,6 @@ export default function App() {
 
   // Start Browser Speech Recognition (Web Speech API)
   const startSpeechRecognition = () => {
-    setMicState("PROCESSING");
-    setMicError(null);
-
-    // Primary path: server-side Cloud Speech-to-Text (en/hi/mr, robust across browsers).
-    // Fallback path: browser Web Speech API when Cloud STT is unavailable.
-    startCloudSpeechRecognition().catch((err) => {
-      console.warn("[voice] Cloud STT unavailable, falling back to Web Speech API:", err?.message || err);
-      startWebSpeechRecognition();
-    });
-  };
-
-  // Server-side Cloud Speech-to-Text: capture mic audio, send to backend.
-  const startCloudSpeechRecognition = async (): Promise<void> => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("MEDIA_DEVICES_UNAVAILABLE");
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    const recorder = new MediaRecorder(stream, { mimeType });
-    const chunks: BlobPart[] = [];
-
-    setMicState("LISTENING");
-
-    const finished = new Promise<void>((resolve, reject) => {
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        try {
-          const blob = new Blob(chunks, { type: mimeType });
-          const buffer = await blob.arrayBuffer();
-          const audioBase64 = arrayBufferToBase64(buffer);
-          const result = await transcribeAudio(audioBase64, language);
-          if (result.success && result.transcript) {
-            setReportText((prev) => appendTranscript(prev, result.transcript!));
-            setMicState("SUCCESS");
-            setTimeout(() => setMicState("IDLE"), 3000);
-            resolve();
-          } else {
-            reject(new Error(result.error || "SPEECH_TO_TEXT_UNAVAILABLE"));
-          }
-        } catch (e) {
-          reject(e);
-        }
-      };
-      recorder.onerror = () => reject(new Error("RECORDER_ERROR"));
-    });
-
-    recorder.start();
-    // Auto-stop after 15s
-    setTimeout(() => { if (recorder.state !== "inactive") recorder.stop(); }, 15000);
-    return finished;
-  };
-
-  // Browser Web Speech API fallback (Chromium-based browsers).
-  const startWebSpeechRecognition = () => {
     const SpeechRecognitionConstructor = (window as Window & {
       SpeechRecognition?: any;
       webkitSpeechRecognition?: any;
@@ -431,13 +328,18 @@ export default function App() {
       return;
     }
 
+    setMicState("PROCESSING");
+    setMicError(null);
+
     try {
       const recognition = new SpeechRecognitionConstructor();
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.lang = mapLanguageToLocale(language);
 
-      recognition.onstart = () => setMicState("LISTENING");
+      recognition.onstart = () => {
+        setMicState("LISTENING");
+      };
 
       recognition.onresult = (event: any) => {
         const results = event.results;
@@ -446,18 +348,24 @@ export default function App() {
           if (transcript) {
             setReportText((prev) => appendTranscript(prev, transcript));
             setMicState("SUCCESS");
-            setTimeout(() => setMicState("IDLE"), 3000);
+            setTimeout(() => {
+              setMicState("IDLE");
+            }, 3000);
           } else {
             setMicState("ERROR");
-            setMicError({ title: "NO SPEECH DETECTED", subtitle: "Try speaking again." });
+            setMicError({
+              title: "NO SPEECH DETECTED",
+              subtitle: "Try speaking again."
+            });
           }
         }
       };
 
       recognition.onerror = (event: any) => {
         console.error("Speech recognition error:", event.error);
+        const errDetail = mapSpeechError(event.error);
         setMicState("ERROR");
-        setMicError(mapSpeechError(event.error));
+        setMicError(errDetail);
       };
 
       recognition.onend = () => {
@@ -661,59 +569,6 @@ export default function App() {
         setHotspotsList((prevList) => 
           prevList.map((h) => h.id === selectedHotspotId ? res.hotspot : h)
         );
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsDispatching(false);
-    }
-  };
-
-  // Acknowledge incident (starts SLA clock)
-  const handleAcknowledgeIncident = async () => {
-    if (!selectedHotspotId) return;
-    try {
-      setIsDispatching(true);
-      const res = await acknowledgeIncident(selectedHotspotId);
-      if (res.success) {
-        setHotspotsList((prevList) =>
-          prevList.map((h) => h.id === selectedHotspotId ? res.hotspot : h)
-        );
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsDispatching(false);
-    }
-  };
-
-  // Resolve incident (stops SLA clock)
-  const handleResolveIncident = async () => {
-    if (!selectedHotspotId) return;
-    try {
-      setIsDispatching(true);
-      const res = await resolveIncident(selectedHotspotId);
-      if (res.success) {
-        setHotspotsList((prevList) =>
-          prevList.map((h) => h.id === selectedHotspotId ? res.hotspot : h)
-        );
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsDispatching(false);
-    }
-  };
-
-  // Dismiss incident as false positive (human-in-loop)
-  const handleDismissIncident = async (reason: string) => {
-    if (!selectedHotspotId) return;
-    try {
-      setIsDispatching(true);
-      const res = await dismissIncident(selectedHotspotId, reason);
-      if (res.success) {
-        setHotspotsList((prevList) => prevList.filter((h) => h.id !== res.hotspotId));
-        setSelectedHotspotId(null);
       }
     } catch (err) {
       console.error(err);
@@ -1499,8 +1354,6 @@ export default function App() {
                       a critical local combustion source.
                     </p>
 
-                    <FusionBreakdown fusion={fusedHotspot.fusion} className="bg-[#101A28]/60" />
-
                     <button
                       onClick={() => {
                         setRole("municipal");
@@ -1554,7 +1407,7 @@ export default function App() {
                   <span className="text-[10px] font-mono text-[#A2B1C4] block uppercase">High-Confidence Signals</span>
                   <div className="flex items-baseline gap-2 mt-1">
                     <span className="text-2xl font-bold text-[#FF5369] font-mono">
-                      {String(hotspotsList.filter(h => h.signalStrength >= 0.75).length).padStart(2, '0')}
+                      {String(hotspotsList.filter(h => h.confidence >= 0.8).length).padStart(2, '0')}
                     </span>
                     <span className="text-[9px] bg-red-500/10 text-red-500 px-1 rounded">Critical</span>
                   </div>
@@ -1581,63 +1434,6 @@ export default function App() {
                     setActiveTab("overview");
                   }}
                 />
-              </div>
-
-              {/* Live Signal Stream (real-time event feed) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono font-bold text-[#A2B1C4] tracking-widest uppercase flex items-center gap-2">
-                    <Activity className="w-3.5 h-3.5 text-[#00C9FF]" />
-                    LIVE SIGNAL STREAM
-                  </h4>
-                  <span className={`flex items-center gap-1.5 text-[9px] font-mono px-1.5 py-0.5 rounded ${streamConnected ? "bg-[#31D697]/10 text-[#31D697]" : "bg-slate-800 text-slate-500"}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${streamConnected ? "bg-[#31D697] animate-pulse" : "bg-slate-500"}`} />
-                    {streamConnected ? "LIVE" : "OFFLINE"}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-[#101A28] border border-slate-800 max-h-44 overflow-y-auto space-y-1.5">
-                  {streamEvents.length === 0 ? (
-                    <p className="text-[11px] text-slate-500 font-mono italic text-center py-3">
-                      Listening for incoming citizen observations and signal promotions…
-                    </p>
-                  ) : (
-                    streamEvents.map((ev, i) => {
-                      const at = ev?.at ? new Date(ev.at).toLocaleTimeString() : "";
-                      let icon = "•";
-                      let color = "text-[#A2B1C4]";
-                      let label = "";
-                      if (ev?.type === "report_received") {
-                        icon = "📥";
-                        color = "text-[#00C9FF]";
-                        label = `New citizen observation (${ev.report?.language || "?"})`;
-                      } else if (ev?.type === "hotspot_promoted") {
-                        icon = "🚨";
-                        color = "text-[#FF5369]";
-                        label = `Signal promoted · ${(ev.hotspot?.signalStrength * 100).toFixed(0)}% strength`;
-                      } else if (ev?.type === "hotspot_dispatched") {
-                        icon = "🚐";
-                        color = "text-[#FF8B1C]";
-                        label = `Team ${ev.dispatch?.status || "en route"} · ${ev.hotspotId}`;
-                      } else if (ev?.type === "hotspot_resolved") {
-                        icon = "✅";
-                        color = "text-[#31D697]";
-                        label = `Resolved · ${ev.hotspotId}`;
-                      } else if (ev?.type === "hotspot_dismissed") {
-                        icon = "🚫";
-                        color = "text-slate-500";
-                        label = `Dismissed (false positive) · ${ev.hotspotId}`;
-                      }
-                      return (
-                        <div key={`${ev?.type}-${ev?.at}-${i}`} className={`flex items-center gap-2 text-[11px] font-mono ${i === 0 ? "animate-fade-in" : ""}`}>
-                          <span>{icon}</span>
-                          <span className={`${color} truncate flex-1`}>{label}</span>
-                          <span className="text-slate-600 shrink-0">{at}</span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
               </div>
 
               {/* Hotspot incident selection feed */}
@@ -1684,7 +1480,7 @@ export default function App() {
                           </p>
 
                           <div className="mt-3 flex items-center justify-between text-[10px] font-mono text-slate-500 border-t border-slate-900 pt-2">
-                            <span>SIGNAL STRENGTH: {(h.signalStrength * 100).toFixed(0)}%</span>
+                            <span>FUSION MATCH: {(h.confidence * 100).toFixed(0)}%</span>
                             <span className={isDemoMode ? "text-[#31D697]" : "text-slate-500 text-right max-w-[150px] truncate"}>
                               {isDemoMode 
                                 ? (h.dispatch?.status === "EN_ROUTE" ? "★ TEAM EN ROUTE (ETA 18m)" : "● AVAILABLE FOR ACTION")
@@ -1723,7 +1519,7 @@ export default function App() {
                     <div className="flex gap-4 pt-2">
                       <div className="px-2.5 py-1 bg-[#162334] rounded border border-slate-800 text-[10px] font-mono">
                         <span className="text-slate-500 block">FUSION LEVEL</span>
-                        <span className="text-[#00C9FF] font-bold">{(currentHotspot.signalStrength * 100).toFixed(0)}% MATCH</span>
+                        <span className="text-[#00C9FF] font-bold">{(currentHotspot.confidence * 100).toFixed(0)}% MATCH</span>
                       </div>
                       <div className="px-2.5 py-1 bg-[#162334] rounded border border-slate-800 text-[10px] font-mono">
                         <span className="text-slate-500 block">PRIORITY ACTION</span>
@@ -1769,19 +1565,13 @@ export default function App() {
                   {/* Dynamic Active Tab render */}
                   {activeTab === "overview" && (
                     <div className="space-y-6 animate-fade-in">
-                       
+                      
                       {/* Recommendations & Simulation dispatch panel */}
                       <ActionRecommendation 
                         hotspot={currentHotspot} 
                         onDispatch={handleDispatchTeam}
-                        onAcknowledge={handleAcknowledgeIncident}
-                        onResolve={handleResolveIncident}
-                        onDismiss={handleDismissIncident}
                         isDispatching={isDispatching}
                       />
-
-                      {/* Signal Explainability Card — transparent weighted fusion breakdown */}
-                      <FusionBreakdown fusion={currentHotspot.fusion} />
 
                       {/* Citizen Reports Category Analysis Panel */}
                       <div className="space-y-3">

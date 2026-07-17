@@ -112,7 +112,7 @@ export default function SignalCorrelation({
 
           <div className="px-3 py-1.5 rounded bg-[#162334] border border-slate-800">
             <span className="text-[10px] text-slate-400 block font-mono uppercase tracking-wider">
-              SIGNAL STRENGTH
+              SIGNAL CONFIDENCE
             </span>
             {score !== undefined && score !== null ? (
               <span className="text-xs font-bold text-[#00C9FF] font-mono">

@@ -157,11 +157,9 @@ export interface ForecastData {
 
 export enum DispatchStatus {
   AVAILABLE = "AVAILABLE",
-  ACKNOWLEDGED = "ACKNOWLEDGED",
   DISPATCHED = "DISPATCHED",
   EN_ROUTE = "EN_ROUTE",
   ON_SITE = "ON_SITE",
-  RESOLVED = "RESOLVED",
 }
 
 export interface DispatchState {
@@ -171,11 +169,6 @@ export interface DispatchState {
   status?: DispatchStatus;
   etaMinutes?: number;
   timestamp?: string;
-  acknowledgedAt?: string;
-  dispatchedAt?: string;
-  resolvedAt?: string;
-  outcome?: string;
-  slaTargetMinutes?: number;
 }
 
 export interface Hotspot {
@@ -184,7 +177,7 @@ export interface Hotspot {
   longitude: number;
   eventType: EventType;
   severity: Severity;
-  signalStrength: number; // 0.0–1.0, derived from fusion finalScore (Evidence Convergence)
+  confidence: number;
   address: string;
   timestamp: string;
   reportsCount: number;
@@ -193,7 +186,4 @@ export interface Hotspot {
   context: EnvironmentalContext;
   forecast: ForecastData;
   dispatch?: DispatchState;
-  dismissed?: boolean;
-  dismissedReason?: string;
-  dismissedAt?: string;
 }

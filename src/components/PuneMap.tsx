@@ -68,8 +68,8 @@ export default function PuneMap({ hotspots, selectedHotspotId, onSelectHotspot }
     // In DEMO MODE, the hardcoded Shivajinagar station marker may be shown as a prototype fallback
     stationsToRender.push({
       name: "Shivajinagar CPCB Station",
-      lat: 18.5235,
-      lng: 73.8525,
+      lat: 18.5204,
+      lng: 73.8567,
       aqi: 117
     });
   } else {
@@ -321,7 +321,7 @@ export default function PuneMap({ hotspots, selectedHotspotId, onSelectHotspot }
                     fontWeight="bold" 
                     fontFamily="monospace"
                   >
-                    {h.eventType.replace("_", " ")} ({Math.round(h.signalStrength * 100)}%)
+                    {h.eventType.replace("_", " ")} ({Math.round(h.confidence * 100)}%)
                   </text>
                 </g>
               </g>

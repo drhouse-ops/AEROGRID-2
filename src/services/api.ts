@@ -6,7 +6,6 @@ import {
   EventType,
   Severity
 } from "../types/api";
-import { FUSION_CONFIG } from "../config/fusionConfig";
 
 const BASE_URL = (typeof import.meta !== "undefined" && import.meta.env) ? (import.meta.env.VITE_API_BASE_URL || "") : "";
 
@@ -359,7 +358,7 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
       if (diffMins > 60) return false;
       const rConfidence = r.analysis?.confidence ?? 0;
       const rAiCat = r.analysis?.aiDetectedCategory;
-      const rHasHighConfidence = rConfidence >= FUSION_CONFIG.aiCategoryConfidenceThreshold && rAiCat && rAiCat !== "UNKNOWN";
+      const rHasHighConfidence = rConfidence >= 0.75 && rAiCat && rAiCat !== "UNKNOWN";
       const rResolvedType = rHasHighConfidence ? rAiCat : (r.categoryHint || r.analysis?.eventType || "UNKNOWN");
       return categoryCompatibility(resolvedEventType, rResolvedType);
     });
@@ -447,14 +446,13 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
     ? context.weatherContext.persistenceScore
     : null;
 
-  const w = FUSION_CONFIG.fusionWeights;
   const dimensions = [
-    { name: "citizenReportCorrelation", value: C, weight: w.citizenReportCorrelation, label: "Citizen Report Correlation" },
-    { name: "visualEvidenceConfidence", value: V, weight: w.visualEvidenceConfidence, label: "Visual Evidence Confidence" },
-    { name: "groundMonitoringAnomaly", value: S, weight: w.groundMonitoringAnomaly, label: "Ground Monitoring Anomaly" },
-    { name: "geospatialCorrelation", value: G, weight: w.geospatialCorrelation, label: "Geospatial Correlation" },
-    { name: "temporalCorrelation", value: T, weight: w.temporalCorrelation, label: "Temporal Correlation" },
-    { name: "atmosphericPersistence", value: M, weight: w.atmosphericPersistence, label: "Atmospheric Persistence" }
+    { name: "citizenReportCorrelation", value: C, weight: 0.20, label: "Citizen Report Correlation" },
+    { name: "visualEvidenceConfidence", value: V, weight: 0.20, label: "Visual Evidence Confidence" },
+    { name: "groundMonitoringAnomaly", value: S, weight: 0.25, label: "Ground Monitoring Anomaly" },
+    { name: "geospatialCorrelation", value: G, weight: 0.15, label: "Geospatial Correlation" },
+    { name: "temporalCorrelation", value: T, weight: 0.10, label: "Temporal Correlation" },
+    { name: "atmosphericPersistence", value: M, weight: 0.10, label: "Atmospheric Persistence" }
   ];
 
   const availableDims = dimensions.filter(d => d.value !== null && d.value !== undefined);
@@ -471,11 +469,11 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
   const finalScore = weightTotal > 0 ? parseFloat((weightedSum / weightTotal).toFixed(2)) : 0;
 
   let classification: "OBSERVATION" | "WATCH" | "PROBABLE HOTSPOT" | "HIGH-CONFIDENCE SIGNAL" = "OBSERVATION";
-  if (finalScore > FUSION_CONFIG.classificationThresholds.highConfidenceSignal) {
+  if (finalScore > 0.75) {
     classification = "HIGH-CONFIDENCE SIGNAL";
-  } else if (finalScore > FUSION_CONFIG.classificationThresholds.probableHotspot) {
+  } else if (finalScore > 0.55) {
     classification = "PROBABLE HOTSPOT";
-  } else if (finalScore > FUSION_CONFIG.classificationThresholds.watch) {
+  } else if (finalScore > 0.35) {
     classification = "WATCH";
   }
 
@@ -509,7 +507,7 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
       longitude: 73.8556,
       eventType: liveReportWithId.analysis?.eventType || EventType.OPEN_WASTE_BURNING,
       severity: liveReportWithId.analysis?.severity || Severity.HIGH,
-      signalStrength: finalScore,
+      confidence: finalScore,
       address: "Pune Central Pilot Zone (Centroid near Shivajinagar Market)",
       timestamp: new Date().toISOString(),
       reportsCount: n + 1,
@@ -544,7 +542,6 @@ function fallbackEvaluateFusion(report: Partial<CitizenReport>): {
         teamName: "Environmental Response Team 02",
         status: "AVAILABLE" as any,
         etaMinutes: 18,
-        slaTargetMinutes: 45,
       } : {
         available: false,
         disclosure: "MUNICIPAL DISPATCH INTEGRATION NOT CONNECTED"
@@ -575,28 +572,6 @@ async function handleResponse(res: Response) {
     throw new Error("HTML response received instead of JSON (session redirect in progress)");
   }
   return res.json();
-}
-
-/**
- * Server-side multilingual transcription via Cloud Speech-to-Text.
- * Returns { success, transcript }. On any failure the caller should fall back to the
- * browser's Web Speech API. `audioBase64` is WEBM_OPUS recorded from the mic.
- */
-export async function transcribeAudio(audioBase64: string, language: "en" | "hi" | "mr"): Promise<{ success: boolean; transcript?: string; error?: string }> {
-  try {
-    const res = await fetch(`${BASE_URL}/api/v1/speech-to-text`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioBase64, language }),
-    });
-    const data = await res.json();
-    if (data.success && data.transcript) {
-      return { success: true, transcript: data.transcript };
-    }
-    return { success: false, error: data.error || "SPEECH_TO_TEXT_UNAVAILABLE" };
-  } catch (err: any) {
-    return { success: false, error: err?.message || "SPEECH_TO_TEXT_UNAVAILABLE" };
-  }
 }
 
 // ==========================================================
@@ -720,16 +695,13 @@ export async function dispatchIncidentResponse(id: string, teamName: string): Pr
     if (hotspotIndex === -1) {
       throw new Error(`Hotspot ${id} not found in local simulation.`);
     }
-    const dispatchedAt = new Date().toISOString();
     const updatedHotspot = {
       ...hotspots[hotspotIndex],
       dispatch: {
         teamName: teamName || "Environmental Response Team 02",
         status: "EN_ROUTE" as any,
         etaMinutes: 18,
-        timestamp: dispatchedAt,
-        acknowledgedAt: hotspots[hotspotIndex].dispatch?.acknowledgedAt || dispatchedAt,
-        dispatchedAt,
+        timestamp: new Date().toISOString()
       }
     };
     hotspots[hotspotIndex] = updatedHotspot;
@@ -748,134 +720,6 @@ export async function dispatchIncidentResponse(id: string, teamName: string): Pr
   } catch (err) {
     console.warn(`dispatchIncidentResponse failed for ${id} in live pilot mode.`, err);
     throw err;
-  }
-}
-
-// POST Acknowledge incident (starts SLA clock)
-export async function acknowledgeIncident(id: string): Promise<{
-  success: boolean;
-  hotspot: Hotspot;
-}> {
-  if (isDemoMode) {
-    const hotspots = getLocalHotspots();
-    const hotspotIndex = hotspots.findIndex(h => h.id === id);
-    if (hotspotIndex === -1) {
-      throw new Error(`Hotspot ${id} not found in local simulation.`);
-    }
-    const acknowledgedAt = new Date().toISOString();
-    const prev = hotspots[hotspotIndex].dispatch;
-    const updatedHotspot = {
-      ...hotspots[hotspotIndex],
-      dispatch: {
-        ...(prev || {}),
-        status: (prev && prev.status && prev.status !== "AVAILABLE" ? prev.status : "ACKNOWLEDGED") as any,
-        acknowledgedAt,
-      }
-    };
-    hotspots[hotspotIndex] = updatedHotspot;
-    saveLocalHotspots(hotspots);
-    return { success: true, hotspot: updatedHotspot };
-  }
-  try {
-    const res = await fetch(`${BASE_URL}/api/v1/incidents/${id}/acknowledge`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    return await handleResponse(res);
-  } catch (err) {
-    console.warn(`acknowledgeIncident failed for ${id} in live pilot mode.`, err);
-    throw err;
-  }
-}
-
-// POST Resolve incident (stops SLA clock)
-export async function resolveIncident(id: string, outcome?: string): Promise<{
-  success: boolean;
-  hotspot: Hotspot;
-}> {
-  if (isDemoMode) {
-    const hotspots = getLocalHotspots();
-    const hotspotIndex = hotspots.findIndex(h => h.id === id);
-    if (hotspotIndex === -1) {
-      throw new Error(`Hotspot ${id} not found in local simulation.`);
-    }
-    const resolvedAt = new Date().toISOString();
-    const updatedHotspot = {
-      ...hotspots[hotspotIndex],
-      dispatch: {
-        ...(hotspots[hotspotIndex].dispatch || {}),
-        status: "RESOLVED" as any,
-        resolvedAt,
-        outcome: outcome || "RESOLVED_BY_FIELD_TEAM",
-      }
-    };
-    hotspots[hotspotIndex] = updatedHotspot;
-    saveLocalHotspots(hotspots);
-    return { success: true, hotspot: updatedHotspot };
-  }
-  try {
-    const res = await fetch(`${BASE_URL}/api/v1/incidents/${id}/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outcome }),
-    });
-    return await handleResponse(res);
-  } catch (err) {
-    console.warn(`resolveIncident failed for ${id} in live pilot mode.`, err);
-    throw err;
-  }
-}
-
-// POST Dismiss incident as false positive (human-in-loop)
-export async function dismissIncident(id: string, reason?: string): Promise<{
-  success: boolean;
-  message: string;
-  hotspotId: string;
-}> {
-  if (isDemoMode) {
-    const hotspots = getLocalHotspots();
-    const remaining = hotspots.filter(h => h.id !== id);
-    saveLocalHotspots(remaining);
-    return { success: true, message: "Signal dismissed as false positive.", hotspotId: id };
-  }
-  try {
-    const res = await fetch(`${BASE_URL}/api/v1/incidents/${id}/dismiss`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
-    return await handleResponse(res);
-  } catch (err) {
-    console.warn(`dismissIncident failed for ${id} in live pilot mode.`, err);
-    throw err;
-  }
-}
-
-// Subscribe to the live signal stream (Server-Sent Events).
-// Returns an unsubscribe function. Falls back to no-op in pure localStorage demo.
-export function subscribeSignalStream(
-  onEvent: (event: any) => void
-): () => void {
-  if (isDemoMode && typeof window !== "undefined" && !window.EventSource) {
-    return () => {};
-  }
-  try {
-    const es = new EventSource(`${BASE_URL}/api/v1/stream`);
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        onEvent(data);
-      } catch {
-        /* ignore malformed */
-      }
-    };
-    es.onerror = () => {
-      // EventSource auto-reconnects; nothing to do.
-    };
-    return () => es.close();
-  } catch {
-    return () => {};
   }
 }
 
